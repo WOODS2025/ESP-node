@@ -7,8 +7,8 @@
 #include "common.h"
 #include "gap.h"
 #include "gatt_svc.h"
-#include "heart_rate.h"
-#include "led.h"
+
+
 
 /* Library function declarations */
 void ble_store_config_init(void);
@@ -62,21 +62,15 @@ static void nimble_host_task(void *param) {
     vTaskDelete(NULL);
 }
 
-static void heart_rate_task(void *param) {
+static void dummy_task(void *param) {
     /* Task entry log */
-    ESP_LOGI(TAG, "heart rate task has been started!");
+    ESP_LOGI(TAG, "Entering task!");
 
     /* Loop forever */
     while (1) {
-        /* Update heart rate value every 1 second */
-        update_heart_rate();
-        ESP_LOGI(TAG, "heart rate updated to %d", get_heart_rate());
-
-        /* Send heart rate indication if enabled */
-        send_heart_rate_indication();
-
+        ESP_LOGI(TAG, "beep");
         /* Sleep */
-        vTaskDelay(HEART_RATE_TASK_PERIOD);
+        vTaskDelay(2000);
     }
 
     /* Clean up at exit */
@@ -88,10 +82,6 @@ void app_main(void) {
     int rc;
     uint32_t seed = esp_random();
     esp_err_t ret;
-
-    /* LED initialization */
-    led_init();
-
     /* Random generator initialization */
     srand(seed);
 
@@ -137,6 +127,6 @@ void app_main(void) {
 
     /* Start NimBLE host task thread and return */
     xTaskCreate(nimble_host_task, "NimBLE Host", 4*1024, NULL, 5, NULL);
-    xTaskCreate(heart_rate_task, "Heart Rate", 4*1024, NULL, 5, NULL);
+    xTaskCreate(dummy_task, "dummy", 4*1024, NULL, 5, NULL);
     return;
 }

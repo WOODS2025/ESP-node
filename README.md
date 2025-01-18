@@ -1,6 +1,3 @@
-| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-S3 |
-| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | -------- |
-
 # NimBLE Security Example
 
 ## Overview
@@ -10,43 +7,6 @@ This example is extended from NimBLE GATT Server Example, and further introduces
 1. How to set random non-resolvable private address for device
 2. How to ask for connection encryption from peripheral side on characteristic access
 3. How to bond with peer device using a random generated 6-digit passkey
-
-
-To test this demo, install *nRF Connect for Mobile* on your phone. 
-
-## Try It Yourself
-
-### Set Target
-
-Before project configuration and build, be sure to set the correct chip target using:
-
-``` shell
-idf.py set-target <chip_name>
-```
-
-For example, if you're using ESP32, then input
-
-``` Shell
-idf.py set-target esp32
-```
-
-### Build and Flash
-
-Run the following command to build, flash and monitor the project.
-
-``` Shell
-idf.py -p <PORT> flash monitor
-```
-
-For example, if the corresponding serial port is `/dev/ttyACM0`, then it goes
-
-``` Shell
-idf.py -p /dev/ttyACM0 flash monitor
-```
-
-(To exit the serial monitor, type ``Ctrl-]``.)
-
-See the [Getting Started Guide](https://idf.espressif.com/) for full steps to configure and use ESP-IDF to build projects.
 
 ## Code Explained
 
@@ -213,11 +173,3 @@ case BLE_GAP_EVENT_PASSKEY_ACTION:
     }
     return rc;
 ```
-
-## Observation
-
-If everything goes well, pairing will be required when you try to access any of the characteristics, that is, read or indicate heart rate characteristic, or write LED characteristic.
-
-## Troubleshooting
-
-For any technical queries, please file an [issue](https://github.com/espressif/esp-idf/issues) on GitHub. We will get back to you soon.

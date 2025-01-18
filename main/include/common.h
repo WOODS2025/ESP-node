@@ -32,7 +32,7 @@
 #include "nimble/nimble_port_freertos.h"
 
 /* Defines */
-#define TAG "NimBLE_Security"
 #define DEVICE_NAME "NimBLE_SEC"
+#define TAG "SHADEnode"
 
 #endif // COMMON_H
