@@ -8,6 +8,8 @@
 #include "common.h"
 #include "gatt_svc.h"
 
+node_state state = NODE_STATE_LISTEN;
+
 /* Private function declarations */
 inline static void format_addr(char *addr_str, uint8_t addr[]);
 static void print_conn_desc(struct ble_gap_conn_desc *desc);
@@ -140,6 +142,26 @@ static void start_advertising(void) {
     ESP_LOGI(TAG, "advertising started!");
 }
 
+/* Start scanning for advertisements */
+static void start_scanning(void) {
+    struct ble_gap_disc_params disc_params;
+    int rc;
+
+    memset(&disc_params, 0, sizeof(disc_params));
+    disc_params.passive = 1;
+    disc_params.itvl = BLE_GAP_SCAN_FAST_INTERVAL_MAX;
+    disc_params.window = BLE_GAP_SCAN_FAST_WINDOW;
+    disc_params.filter_policy = BLE_HCI_SCAN_FILT_NO_WL;
+    disc_params.limited = 0;
+
+    rc = ble_gap_disc(BLE_OWN_ADDR_PUBLIC, BLE_HS_FOREVER, &disc_params, gap_event_handler, NULL);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "Failed to start scanning; rc=%d", rc);
+    } else {
+        ESP_LOGI(TAG, "Scanning started");
+    }
+}
+
 /*
  * NimBLE applies an event-driven model to keep GAP service going
  * gap_event_handler is a callback function registered when calling
@@ -152,6 +174,16 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg) {
 
     /* Handle different GAP event */
     switch (event->type) {
+        case BLE_GAP_EVENT_DISC:
+        /* Advertisement received */
+        ESP_LOGI(TAG, "Advertisement received; addr_type=%d addr=%s",
+                 event->disc.addr.type, addr_str(event->disc.addr.val));
+        /* Connect to the advertising device */
+        rc = ble_gap_connect(BLE_OWN_ADDR_PUBLIC, &event->disc.addr, BLE_HS_FOREVER, NULL, gap_event_handler, NULL);
+        if (rc != 0) {
+            ESP_LOGE(TAG, "Failed to connect to device; rc=%d", rc);
+        }
+        return 0;
 
     /* Connect event */
     case BLE_GAP_EVENT_CONNECT:
@@ -191,7 +223,7 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg) {
         }
         /* Connection failed, restart advertising */
         else {
-            start_advertising();
+            adv_init();
         }
         return rc;
 
@@ -202,7 +234,7 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg) {
                  event->disconnect.reason);
 
         /* Restart advertising */
-        start_advertising();
+        adv_init();
         return rc;
 
     /* Connection parameters update event */
@@ -226,7 +258,7 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg) {
         /* Advertising completed, restart advertising */
         ESP_LOGI(TAG, "advertise complete; reason=%d",
                  event->adv_complete.reason);
-        start_advertising();
+        adv_init();
         return rc;
 
     /* Notification sent event */
@@ -346,10 +378,19 @@ void adv_init(void) {
         return;
     }
     format_addr(addr_str, addr_val);
-    ESP_LOGI(TAG, "device address: %s", addr_str);
-
-    /* Start advertising. */
-    start_advertising();
+    ESP_LOGI(TAG, "device address now: %s", addr_str);
+    // what to do next is dependant on mode
+    switch (state){
+        case NODE_STATE_LISTEN:
+            start_scanning();
+            break;
+        case NODE_STATE_TRANSMIT:
+            start_advertising();
+            break;
+        case NODE_STATE_LOUD:
+            ESP_LOGE(TAG, "Loud state not implemented yet");
+            break;
+    }
 }
 
 bool is_connection_encrypted(uint16_t conn_handle) {

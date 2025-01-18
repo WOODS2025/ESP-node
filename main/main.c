@@ -8,8 +8,6 @@
 #include "gap.h"
 #include "gatt_svc.h"
 
-
-
 /* Library function declarations */
 void ble_store_config_init(void);
 
@@ -29,8 +27,7 @@ static void on_stack_reset(int reason) {
 }
 
 static void on_stack_sync(void) {
-    /* On stack sync, do advertising initialization */
-    adv_init();
+        adv_init();
 }
 
 static void nimble_host_config_init(void) {
