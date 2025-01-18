@@ -24,7 +24,6 @@ typedef enum {
 
 /* Public function declarations */
 void adv_init(void);
-void start_scanning(void);
 bool is_connection_encrypted(uint16_t conn_handle);
 int gap_init(void);
 extern node_state state;
