@@ -1,175 +1,53 @@
-# NimBLE Security Example
+# S.H.A.D.E. Node
 
-## Overview
+This repository contains the software for a demo Node on the Short-range Hidden Attritable Data Environment. This firmware targets ESP32-C6 but should be compatible with any target supporting Bluetooth LE and the nimBLE stack.
 
-This example is extended from NimBLE GATT Server Example, and further introduces
+## S.H.A.D.E. Overview
 
-1. How to set random non-resolvable private address for device
-2. How to ask for connection encryption from peripheral side on characteristic access
-3. How to bond with peer device using a random generated 6-digit passkey
+SHADE is designed to provide text communications in a hostile / denied environment where other communications methods that rely on the Internet are blocked or compromised. This is less an instant messaging system, and more a distributed dead drop. 
 
-## Code Explained
+Our design tenants are:
+- Hide in plain sight: use standard BLE Advertisements to transmit data
+- Be Quiet: nodes produce no RF emissions when idle
+- Be Resilient: SHADE is a many:many designed for redundancy in a pseudo-mesh network
+- Be Attritable: No node is required for the operation of any other, nodes should be cheap and easily replaced.
 
-### Overview
+This protocol is not designed to be undetectable, but to be difficult enough to detect any one node that denial of service for the overall network is impractical. 
 
-The following is additional content compared to the NimBLE GATT Server example.
+## Node-to-Node Protocol
 
-1. Initialization procedure is generally similar to NimBLE GATT Server Example, but we'll initialize random number generator in the beginning, and in `nimble_host_config_init` we will configure security manager to enable related features
-2. On stack sync, a random non-resolvable private address is generated and set as the device address
-3. Characteristics' permission modified to require connection encryption when accessing
-4. 3 more GAP event branches added in `gap_event_handler` to handle encryption related events
+### Transmission
 
-### Entry Point
+A SHADE Node is always configured as a passive BLE Observer, collecting advertisement packets. When a Node has data to send, it will encode this data into a series of BLE advertisements as follows:
 
-In `nimble_host_config_init` function, we're going to enable some security manager features, including
+- Sender generates a random MAC address that it will use for the duration of this message. This serves as the message ID
+- Sender configures itself as a non-connectable, non-scannable, undirected advertiser
+- Sender broadcasts a `BT_DATA_NAME_COMPLETE` advertisement with a randomly selected name followed by a base64 checksum of the message payload. Example: `Sony QhZcWbHoHs9UZHK`
+- Sender transmits the rest of the message an a series of `BT_DATA_MANUFACTURER_DATA` advertisements with small delays [50-500]ms between transmissions.
 
-- Bonding
-- Man-in-the-middle protection
-- Key distribution
+Many Manufacturer Data advertisements will likely be required, as the maximum payload per advertisement is 29 bytes. 
 
-Also, we're going to set the IO capability to `BLE_HS_IO_DISPLAY_ONLY`, since it's possible to print out the passkey to serial output.
+This protocol is connection-less by design, meaning that nodes only have to reveal themselves while actively transmitting new data. However, this comes with some drawbacks, each of which are addressed in the following sections:
+- Cannot take advantage of BLE security & encryption features
+- receiving nodes have no way to ACK / NACK data
+- Slow
 
-``` C
-static void nimble_host_config_init(void) {
-    ...
+In this system, cryptography is intentionally left up to the user. By design, nodes have no root of trust as must be easily replaceable, therefore a standard configuration where each node has an asymmetric keyset is not feasible. The same goes for users, where users have no accounts, there is no centralized system to store public keys, and users may not wish to be attributable. 
 
-    /* Security manager configuration */
-    ble_hs_cfg.sm_io_cap = BLE_HS_IO_DISPLAY_ONLY;
-    ble_hs_cfg.sm_bonding = 1;
-    ble_hs_cfg.sm_mitm = 1;
-    ble_hs_cfg.sm_our_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
-    ble_hs_cfg.sm_their_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+By leaving encryption to the user, users can post cleartext for anyone to read or encrypt to that only a wanted recipient or recipients can decrypt the message client-side.
 
-    ...
-}
-```
+### Synchronization
 
-### GATT Server Updates
+To address the issues of lack of retransmission and to allow nodes to receive messages that were broadcast before the node booted, the protocol has a synchronization function. 
 
-For heart rate characteristic and LED characteristic, `BLE_GATT_CHR_F_READ_ENC` and `BLE_GATT_CHR_F_WRITE_ENC` flag are added respectively to require connection encryption when GATT client tries to access the characteristic. Thanks to NimBLE host stack, the connection encryption will be initiated automatically by adding these flags.
+A node will initiate a sync either when it first starts up, or when a received message fails a checksum. 
 
-However, heart rate characteristic is also indicatable, and NimBLE host stack does not offer an implementation for indication access to require connection encryption, so we need to do it ourselves. For GATT server, we simply check connection security status by calling an external function `is_connection_encrypted` in `send_heart_rate_indication` function to determine if the indication should be sent. This external function is defined in GAP layer, and we'll talk about it in *GAP Event Handler Updates* section.
+This is initiated by broadcasting an advertisement with a random MAC address and a `BT_DATA_NAME_SHORTENED` of `SHDSYNC`, optionally followed by a series of `BT_DATA_MANUFACTURER_DATA` advertisements whose payload is a list of MAC addresses (IDs) of messages already known by the requesting node. This indicates to all other nodes that they need not send the messages with these IDs, reducing sync time and visibility. 
 
-``` C
-void send_heart_rate_indication(void) {
-    /* Check if connection handle is initialized */
-    if (!heart_rate_chr_conn_handle_inited) {
-        return;
-    }
+When a node receives a sync request, it will wait for a random amount of time [5-2000]ms, listening for any other node to transmit a response. If no response is detected within this time, the node will begin transmitting all messages known to it that were *not* specified in the MAC address list sent by the requesting node. Exponential backoff is not necessary as multiple nodes advertising simultaneously will not cause collisions; this delay is only to reduce discoverability of nodes if a bad actor sends SYNC requests. 
 
-    /* Check indication and security status */
-    if (heart_rate_ind_status &&
-        is_connection_encrypted(heart_rate_chr_conn_handle)) {
-        ble_gatts_indicate(heart_rate_chr_conn_handle,
-                           heart_rate_chr_val_handle);
-    }
-}
-```
+## Node-to-Phone Communication
 
-### Random Address
+As nodes spend the majority of their time not advertising, the client phone must act as the BLE peripheral and advertise a GATT service. Using a similar random wait to that described in the previous section as well as an RSSI floor, a random node in range of the phone will initiate a BLE connection, at which point it will use the writable GATT service to send all messages stored onboard the node. The user may then send a message, which is optionally encrypted on-device before being sent to the node via the GATT connection.
 
-In the following function, we can generate a random non-resolvable private address and set as the device address. We will call it in `adv_init` function before ensuring address availability.
-
-``` C
-static void set_random_addr(void) {
-    /* Local variables */
-    int rc = 0;
-    ble_addr_t addr;
-
-    /* Generate new non-resolvable private address */
-    rc = ble_hs_id_gen_rnd(0, &addr);
-    assert(rc == 0);
-
-    /* Set address */
-    rc = ble_hs_id_set_rnd(addr.val);
-    assert(rc == 0);
-}
-```
-
-### Check Connection Encryption Status
-
-By connection handle, we can fetch connection descriptor from NimBLE host stack, and there's a flag indicating connection encryption status, check the following codes
-
-``` C
-bool is_connection_encrypted(uint16_t conn_handle) {
-    /* Local variables */
-    int rc = 0;
-    struct ble_gap_conn_desc desc;
-
-    /* Print connection descriptor */
-    rc = ble_gap_conn_find(conn_handle, &desc);
-    if (rc != 0) {
-        ESP_LOGE(TAG, "failed to find connection by handle, error code: %d",
-                 rc);
-        return false;
-    }
-
-    return desc.sec_state.encrypted;
-}
-```
-
-### GAP Event Handler Updates
-
-3 more GAP event branches are added in `gap_event_handler`, which are
-
-- `BLE_GAP_EVENT_ENC_CHANGE` - Encryption change event
-- `BLE_GAP_EVENT_REPEAT_PAIRING` - Repeat pairing event
-- `BLE_GAP_EVENT_PASSKEY_ACTION` - Passkey action event
-
-On encryption change event, we're going to print the encryption change status to output.
-
-``` C
-/* Encryption change event */
-case BLE_GAP_EVENT_ENC_CHANGE:
-    /* Encryption has been enabled or disabled for this connection. */
-    if (event->enc_change.status == 0) {
-        ESP_LOGI(TAG, "connection encrypted!");
-    } else {
-        ESP_LOGE(TAG, "connection encryption failed, status: %d",
-                    event->enc_change.status);
-    }
-    return rc;
-```
-
-On repeat pairing event, to make it simple, we will just delete the old bond and repeat pairing.
-
-``` C
-/* Repeat pairing event */
-case BLE_GAP_EVENT_REPEAT_PAIRING:
-    /* Delete the old bond */
-    rc = ble_gap_conn_find(event->repeat_pairing.conn_handle, &desc);
-    if (rc != 0) {
-        ESP_LOGE(TAG, "failed to find connection, error code %d", rc);
-        return rc;
-    }
-    ble_store_util_delete_peer(&desc.peer_id_addr);
-
-    /* Return BLE_GAP_REPEAT_PAIRING_RETRY to indicate that the host should
-        * continue with pairing operation */
-    ESP_LOGI(TAG, "repairing...");
-    return BLE_GAP_REPEAT_PAIRING_RETRY;
-```
-
-On passkey action event, a random 6-digit passkey is generated, and you are supposed to enter the same passkey on pairing. If the input is consistent with the generated passkey, you should be able to bond with the device.
-
-``` C
-/* Passkey action event */
-case BLE_GAP_EVENT_PASSKEY_ACTION:
-    /* Display action */
-    if (event->passkey.params.action == BLE_SM_IOACT_DISP) {
-        /* Generate passkey */
-        struct ble_sm_io pkey = {0};
-        pkey.action = event->passkey.params.action;
-        pkey.passkey = 100000 + esp_random() % 900000;
-        ESP_LOGI(TAG, "enter passkey %" PRIu32 " on the peer side",
-                    pkey.passkey);
-        rc = ble_sm_inject_io(event->passkey.conn_handle, &pkey);
-        if (rc != 0) {
-            ESP_LOGE(TAG,
-                        "failed to inject security manager io, error code: %d",
-                        rc);
-            return rc;
-        }
-    }
-    return rc;
-```
+After the phone terminates the connection, the node performs another random wait [1-30]minutes before transmitting the user's message to all nodes in range. These downstream nodes will then repeat this until the message has propagated throughout the network. 
