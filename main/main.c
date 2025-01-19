@@ -14,6 +14,7 @@ void ble_store_config_init(void);
 /* Private function declarations */
 static void nimble_host_config_init(void);
 static void nimble_host_task(void *param);
+void start_scanning(void);
 
 /* Private functions */
 
@@ -136,11 +137,15 @@ static int central_event_callback(struct ble_gap_event *event, void *arg) {
 
 int scan_event_callback(struct ble_gap_event *event, void *arg) {
     if (event->type == BLE_GAP_EVENT_DISC) {
-        ESP_LOGI(TAG, "Device found"); 
-        if (event->disc.data[0]==14) {  //TODO: check for correct data
+        ESP_LOGI(TAG, "Device found: %x:%x...", event->disc.addr.val[0], event->disc.addr.val[1]); 
+        if (event->disc.addr.val[0] == 0xd4 || event->disc.addr.val[0] == 0x6e) {  //TODO: check for correct data
             ESP_LOGI(TAG, "Connecting to device...");
             ble_gap_connect(BLE_OWN_ADDR_PUBLIC, &event->disc.addr,
                 1000, NULL, central_event_callback, NULL);}
+    }
+    else if (event->type == BLE_GAP_EVENT_DISC_COMPLETE) {
+        ESP_LOGI(TAG, "Scan complete, starting a new one");
+        start_scanning();
     }
     return 0;
 }
@@ -157,7 +162,7 @@ void start_scanning(void) {
     disc_params.filter_policy = BLE_HCI_SCAN_FILT_NO_WL;
     disc_params.limited = 0;
 
-    rc = ble_gap_disc(BLE_OWN_ADDR_PUBLIC, 200, &disc_params, scan_event_callback, NULL);
+    rc = ble_gap_disc(BLE_OWN_ADDR_PUBLIC, BLE_HS_FOREVER, &disc_params, scan_event_callback, NULL);
     if (rc != 0) {
         ESP_LOGE(TAG, "Failed to start scanning; rc=%d", rc);
     } else {
@@ -224,7 +229,7 @@ static void nimble_host_task(void *param) {
 
     /* This function won't return until nimble_port_stop() is executed */
     nimble_port_run();
-
+    ESP_LOGI(TAG, "nimble host task has been stopped!");
     /* Clean up at exit */
     vTaskDelete(NULL);
 }
