@@ -50,4 +50,4 @@ When a node receives a sync request, it will wait for a random amount of time [5
 
 As nodes spend the majority of their time not advertising, the client phone must act as the BLE peripheral and advertise a GATT service. Using a similar random wait to that described in the previous section as well as an RSSI floor, a random node in range of the phone will initiate a BLE connection, at which point it will use the writable GATT service to send all messages stored onboard the node. The user may then send a message, which is optionally encrypted on-device before being sent to the node via the GATT connection.
 
-After the phone terminates the connection, the node performs another random wait [1-30]minutes before transmitting the user's message to all nodes in range. These downstream nodes will then repeat this until the message has propogated throuought the netw
+After the phone terminates the connection, the node performs another random wait [1-30]minutes before transmitting the user's message to all nodes in range. These downstream nodes will then repeat this until the message has propagated throughout the network. 
